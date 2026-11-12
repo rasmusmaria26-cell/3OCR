@@ -18,6 +18,7 @@ import { resolveSenderIdentity } from '../core/linking/senderResolver.js';
 import { routeDocument, getQueuedItems, resolveQueueItem } from '../core/linking/queueRouter.js';
 import { assignDocumentVersion } from '../core/linking/versionManager.js';
 import { evaluateCaseDeadlines } from '../core/scheduler/deadlineChecker.js';
+import { explainDiscrepancy } from '../core/ai/discrepancyExplainer.js';
 
 export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue): Express {
   const app = express();
@@ -308,6 +309,14 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
 
       let finalCaseId = explicitCaseId || null;
       let routedToQueue: string | null = null;
+
+      // If no explicitCaseId and customerId was missing from document, check if PO number matches an existing case
+      if (!finalCaseId && !effectiveCustomerId && effectivePoNumber) {
+        const existingCase = caseRepo.findByPoNumber(db, effectivePoNumber);
+        if (existingCase && existingCase.id) {
+          finalCaseId = existingCase.id;
+        }
+      }
 
       if (finalCaseId) {
         linkDocumentToCase(db, documentId, finalCaseId);
@@ -619,6 +628,63 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
       issues: result.issues,
       summary: result.summary,
     });
+  });
+
+  // AI Discrepancy Explainer endpoint
+  app.post('/api/cases/:id/ai-explain', async (req: Request, res: Response): Promise<void> => {
+    try {
+      const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const caseRow = caseRepo.findById(db, caseId);
+      if (!caseRow) {
+        res.status(404).json({ error: 'Case not found' });
+        return;
+      }
+
+      const latestResult = resultRepo.findByCaseId(db, caseId);
+      if (!latestResult) {
+        res.status(404).json({ error: 'No reconciliation results found for case' });
+        return;
+      }
+
+      const issues = JSON.parse(latestResult.issues_json || '[]');
+      const targetFingerprint = req.body?.issueFingerprint;
+
+      const targetIssues = targetFingerprint
+        ? issues.filter((i: any) => i.fingerprint === targetFingerprint)
+        : issues.slice(0, 5);
+
+      if (targetIssues.length === 0) {
+        res.json({ explanations: [] });
+        return;
+      }
+
+      const docs = documentRepo.findCurrentForCase(db, caseId);
+      const snippets: Array<{ sourceType: string; text: string }> = [];
+      for (const d of docs) {
+        const textRow = extractedTextRepo.findByDocId(db, d.id);
+        if (textRow && textRow.raw_text) {
+          snippets.push({
+            sourceType: d.source_type,
+            text: textRow.raw_text.slice(0, 1000),
+          });
+        }
+      }
+
+      const explanations = await Promise.all(
+        targetIssues.map((issue: any) =>
+          explainDiscrepancy({
+            poNumber: caseRow.po_number,
+            customerId: caseRow.customer_id,
+            issue,
+            documentSnippets: snippets,
+          })
+        )
+      );
+
+      res.json({ explanations });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed generating AI explanation' });
+    }
   });
 
   // Submit Review Decision

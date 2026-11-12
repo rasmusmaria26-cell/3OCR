@@ -13,6 +13,10 @@ export const caseRepo = {
     return db.prepare('SELECT * FROM processing_cases WHERE customer_id = ? AND po_number = ?').get(customerId, poNumber) as any;
   },
 
+  findByPoNumber(db: DatabaseType, poNumber: string) {
+    return db.prepare('SELECT * FROM processing_cases WHERE po_number = ? ORDER BY created_at DESC LIMIT 1').get(poNumber) as any;
+  },
+
   findAll(db: DatabaseType) {
     return db.prepare('SELECT * FROM processing_cases ORDER BY created_at DESC').all() as any[];
   },

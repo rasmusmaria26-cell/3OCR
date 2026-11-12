@@ -750,6 +750,17 @@ export function getDashboardHtml(): string {
         <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; margin-bottom: 4px;">Discrepancy Details</div>
         <div id="drawerIssueMessage" style="font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 8px;">Quantity differs: 10 in PDF, 12 in JSON</div>
         <div id="drawerIssueMeta" class="mono" style="font-size: 11px; color: var(--muted);">SKU: SKU-001 • Field: quantity</div>
+        
+        <!-- AI Root Cause & Recommendation Insight -->
+        <div id="drawerAiBox" style="margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-btn); background-color: #f0fdf4; border: 1px solid #bbf7d0; display: none;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <span style="font-size: 10px; font-weight: 700; background: #166534; color: white; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">AI Root Cause Insight</span>
+            <span id="drawerAiModelBadge" class="mono" style="font-size: 10px; color: #166534;"></span>
+          </div>
+          <div id="drawerAiSummary" style="font-size: 12px; color: #14532d; line-height: 1.45; margin-bottom: 6px;"></div>
+          <div style="font-size: 11px; font-weight: 600; color: #166534; margin-bottom: 2px;">Recommendation:</div>
+          <div id="drawerAiRecommendation" style="font-size: 11px; color: #15803d; line-height: 1.4;"></div>
+        </div>
       </div>
 
       <!-- Selection Options Form -->
@@ -892,6 +903,14 @@ export function getDashboardHtml(): string {
       document.getElementById('queuesView').style.display = view === 'queues' ? 'flex' : 'none';
       document.getElementById('unlinkedView').style.display = view === 'unlinked' ? 'flex' : 'none';
       document.getElementById('uploadView').style.display = view === 'upload' ? 'flex' : 'none';
+
+      // Auto-prefill PO and Customer ID if an active case is selected
+      if (view === 'upload' && currentCase) {
+        const poInput = document.getElementById('uploadPoNumber');
+        const custInput = document.getElementById('uploadCustomerId');
+        if (poInput && !poInput.value) poInput.value = currentCase.po_number || '';
+        if (custInput && !custInput.value) custInput.value = currentCase.customer_id || '';
+      }
 
       // Update nav styling
       const btns = {
@@ -1321,7 +1340,8 @@ export function getDashboardHtml(): string {
           <div style="padding: 48px 16px; text-align: center; color: var(--muted);">
             <div style="font-weight: 500; font-size: 14px; margin-bottom: 4px;">\${tabName} Document Not Attached</div>
             <p style="font-size: 12px; margin-bottom: 16px;">This source is required to complete full three-way reconciliation.</p>
-            <button onclick="switchMainView('upload')" class="btn-secondary btn-sm">Upload \${tabName}</button>
+            <input type="file" id="directAttach_\${tabName}" style="display: none;" onchange="handleDirectDocumentUpload(event, '\${tabName}')" accept="\${tabName === 'PDF' ? '.pdf' : tabName === 'JSON' ? '.json' : '.eml,.txt'}">
+            <button onclick="document.getElementById('directAttach_\${tabName}').click()" class="btn-primary btn-sm">Attach \${tabName} to this Case</button>
           </div>
         \`;
         return;
@@ -1453,7 +1473,42 @@ export function getDashboardHtml(): string {
         } else {
           candidatesContainer.innerHTML = '<span style="font-size: 12px; color: var(--muted);">No candidate values extracted</span>';
         }
+
+        // Fetch AI Root Cause & Recommendation Insight
+        const aiBox = document.getElementById('drawerAiBox');
+        const aiSummary = document.getElementById('drawerAiSummary');
+        const aiRec = document.getElementById('drawerAiRecommendation');
+        const aiBadge = document.getElementById('drawerAiModelBadge');
+
+        if (aiBox && currentCase) {
+          aiBox.style.display = 'block';
+          aiSummary.innerHTML = '<em style="color: var(--muted);">Analyzing discrepancy with AI engine...</em>';
+          aiRec.innerText = '';
+          aiBadge.innerText = 'Analyzing...';
+
+          fetch(\`/api/cases/\${currentCase.id}/ai-explain\`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ issueFingerprint: issue.fingerprint })
+          })
+            .then(r => r.json())
+            .then(data => {
+              const exp = data.explanations?.[0];
+              if (exp && currentActiveReviewIssue?.fingerprint === issue.fingerprint) {
+                aiSummary.innerText = exp.summary;
+                aiRec.innerText = exp.recommendation;
+                aiBadge.innerText = exp.isAiGenerated ? 'Gemini 2.5 Flash' : 'Rule Engine';
+              }
+            })
+            .catch(() => {
+              if (currentActiveReviewIssue?.fingerprint === issue.fingerprint) {
+                aiBox.style.display = 'none';
+              }
+            });
+        }
       } else {
+        const aiBox = document.getElementById('drawerAiBox');
+        if (aiBox) aiBox.style.display = 'none';
         msgEl.innerText = 'Manual Case Sign-Off';
         metaEl.innerText = 'PO: ' + (currentCaseDetails?.case?.po_number || '-');
         candidatesContainer.innerHTML = '<span style="font-size: 12px; color: var(--muted);">Sign-off and resolve current case.</span>';
@@ -1682,6 +1737,38 @@ export function getDashboardHtml(): string {
       document.getElementById('startUploadBtn').disabled = true;
     }
 
+    // Direct Single-Document Upload to Current Case
+    async function handleDirectDocumentUpload(event, srcType) {
+      const file = event.target.files?.[0];
+      if (!file || !currentCase) return;
+
+      const metaSpan = document.getElementById('sourceViewerMeta');
+      if (metaSpan) metaSpan.innerText = 'Uploading ' + file.name + '...';
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('sourceType', srcType);
+      formData.append('caseId', currentCase.id);
+      if (currentCase.po_number) formData.append('poNumber', currentCase.po_number);
+      if (currentCase.customer_id) formData.append('customerId', currentCase.customer_id);
+
+      try {
+        const res = await fetch('/api/documents', {
+          method: 'POST',
+          body: formData,
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.error || 'Upload failed');
+        }
+        await selectCase(currentCase.id);
+        await runCaseReconciliation();
+      } catch (err) {
+        alert('Failed attaching document: ' + err.message);
+        renderSourceViewerContent(srcType);
+      }
+    }
+
     async function submitUploadedDocuments() {
       const btn = document.getElementById('startUploadBtn');
       btn.disabled = true;
@@ -1699,6 +1786,7 @@ export function getDashboardHtml(): string {
             formData.append('sourceType', srcType);
             if (po) formData.append('poNumber', po);
             if (cust) formData.append('customerId', cust);
+            if (currentCase) formData.append('caseId', currentCase.id);
 
             uploadPromises.push(
               fetch('/api/documents', {

@@ -308,4 +308,47 @@ Here is the previous thread with old terms and large chunk of text that exceeds 
     const details = JSON.parse(auditEntry.details_json);
     expect(details.new_case_id).toBe('case-manual-link');
   });
+
+  it('generates AI explanations for reconciliation discrepancies via /api/cases/:id/ai-explain', async () => {
+    // 1. Ingest email and JSON with mismatch
+    const emailRes = await fetch(`${baseUrl}/api/documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceType: 'EMAIL',
+        rawText: 'PO: PO-EXPLAIN\nCustomer ID: CUST-101\nItem: MOU-001\nQty: 5\nPrice: $20.00\nTotal: $100.00',
+      }),
+    });
+    const emailData = (await emailRes.json()) as any;
+    const caseId = emailData.caseId;
+
+    // 2. Ingest PDF missing MOU-001 but having LAP-001
+    await fetch(`${baseUrl}/api/documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        caseId,
+        sourceType: 'PDF',
+        rawText: 'PO: PO-EXPLAIN\nCustomer ID: CUST-101\n1 LAP-001 Laptop 1 EA 800.00 800.00\nGrand Total: 800.00',
+      }),
+    });
+
+    // 3. Reconcile
+    const reconRes = await fetch(`${baseUrl}/api/cases/${caseId}/reconcile`, { method: 'POST' });
+    expect(reconRes.status).toBe(200);
+
+    // 4. Request AI explanation
+    const explainRes = await fetch(`${baseUrl}/api/cases/${caseId}/ai-explain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(explainRes.status).toBe(200);
+    const explainData = (await explainRes.json()) as any;
+    expect(explainData.explanations).toBeDefined();
+    expect(explainData.explanations.length).toBeGreaterThan(0);
+    expect(explainData.explanations[0].summary).toBeDefined();
+    expect(explainData.explanations[0].recommendation).toBeDefined();
+  });
 });

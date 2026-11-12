@@ -34,40 +34,70 @@ export async function extractPdfBufferToStageA(params: PdfBufferExtractionParams
 
   const pageBreakOffsets: number[] = [0];
   let curLen = 0;
+  let parsedText = '';
+  let parsingFailed = false;
 
-  const parsed = await pdfParse(buffer, {
-    pagerender: (pageData: any) => {
-      const render_options = {
-        normalizeWhitespace: false,
-        disableCombineTextItems: false,
-      };
-      return pageData.getTextContent(render_options).then((textContent: any) => {
-        let lastY: any;
-        let pageText = '';
-        for (const item of textContent.items) {
-          if (lastY === item.transform[5] || !lastY) {
-            pageText += item.str;
-          } else {
-            pageText += '\n' + item.str;
+  // Pass 1: Custom page-render to capture pageBreakOffsets
+  try {
+    const parsed = await pdfParse(buffer, {
+      pagerender: (pageData: any) => {
+        const render_options = {
+          normalizeWhitespace: false,
+          disableCombineTextItems: false,
+        };
+        return pageData.getTextContent(render_options).then((textContent: any) => {
+          let lastY: any;
+          let pageText = '';
+          for (const item of textContent.items) {
+            if (lastY === item.transform[5] || !lastY) {
+              pageText += item.str;
+            } else {
+              pageText += '\n' + item.str;
+            }
+            lastY = item.transform[5];
           }
-          lastY = item.transform[5];
+          if (curLen > 0) {
+            pageBreakOffsets.push(curLen);
+          }
+          curLen += ('\n\n' + pageText).length;
+          return pageText;
+        });
+      },
+    });
+    parsedText = parsed.text || '';
+  } catch (err: any) {
+    // Pass 2: Fallback to default pdf-parse without custom pagerender
+    try {
+      const defaultParsed = await pdfParse(buffer);
+      parsedText = defaultParsed.text || '';
+    } catch (fallbackErr: any) {
+      parsingFailed = true;
+      // Pass 3: Extract raw strings if binary has uncompressed content streams
+      try {
+        const latin = buffer.toString('latin1');
+        const matches = latin.match(/\(([^)]+)\)\s*Tj/g);
+        if (matches && matches.length > 0) {
+          parsedText = matches.map((m: string) => m.replace(/^\(|\)\s*Tj$/g, '')).join(' ');
         }
-        if (curLen > 0) {
-          pageBreakOffsets.push(curLen);
-        }
-        curLen += ('\n\n' + pageText).length;
-        return pageText;
-      });
-    },
-  });
+      } catch {
+        // ignore
+      }
+    }
+  }
 
-  return extractPdfTextToStageA({
-    rawText: parsed.text,
+  if (parsingFailed && (!parsedText || parsedText.trim().length === 0)) {
+    throw new Error('PDF_PARSE_STREAM_CORRUPT: Corrupted or unreadable PDF stream');
+  }
+
+  const result = extractPdfTextToStageA({
+    rawText: parsedText,
     documentId,
     receivedAt,
     pageBreakOffsets,
     storagePath,
   });
+
+  return result;
 }
 
 export function extractPdfTextToStageA(params: PdfExtractionParams): PdfExtractionResult {
@@ -180,7 +210,7 @@ export function extractPdfTextToStageA(params: PdfExtractionParams): PdfExtracti
   }
 
   // Extract Customer ID
-  const custIdMatch = /Customer\s*ID[:\s]+([A-Za-z0-9_-]+)/i.exec(rawText);
+  const custIdMatch = /(?:Customer(?:\s*(?:ID|Code|No\.?|Number))?|Client(?:\s*(?:ID|Code|No\.?))?|Account(?:\s*(?:No\.?|Number|ID))?)[:\s]+([A-Za-z0-9_-]+)/i.exec(rawText);
   if (custIdMatch) {
     checkAndSetField({
       fieldPath: 'order.customerId',
@@ -195,7 +225,7 @@ export function extractPdfTextToStageA(params: PdfExtractionParams): PdfExtracti
   }
 
   // Extract Customer Name
-  const custNameMatch = /Customer(?:\s*Name)?[:\s]+([A-Za-z0-9\s]+?)(?:\r?\n|$)/i.exec(rawText);
+  const custNameMatch = /(?:Customer(?:\s*Name)?|Client(?:\s*Name)?|Bill\s*To)[:\s]+([A-Za-z0-9\s.,&-]+?)(?:\r?\n|$)/i.exec(rawText);
   if (custNameMatch) {
     stageA.order.customerName = custNameMatch[1].trim();
   }
