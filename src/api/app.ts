@@ -19,6 +19,7 @@ import { routeDocument, getQueuedItems, resolveQueueItem } from '../core/linking
 import { assignDocumentVersion } from '../core/linking/versionManager.js';
 import { evaluateCaseDeadlines } from '../core/scheduler/deadlineChecker.js';
 import { explainDiscrepancy } from '../core/ai/discrepancyExplainer.js';
+import { parseInboundWebhook } from '../extractors/inboundEmailParser.js';
 
 export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue): Express {
   const app = express();
@@ -432,6 +433,281 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Ingestion failed' });
+    }
+  });
+
+  // Inbound Email Webhook (Atomic 2-in-1 Email + PDF ingestion with real-time reconciliation)
+  app.post('/api/webhooks/inbound-email', upload.any(), async (req: Request, res: Response): Promise<void> => {
+    try {
+      const parsed = parseInboundWebhook({
+        body: req.body,
+        files: (req.files as any) || [],
+      });
+
+      if (!parsed.bodyText && parsed.pdfAttachments.length === 0) {
+        res.status(400).json({ error: 'No email body or PDF attachments found in payload' });
+        return;
+      }
+
+      const receivedAt = new Date().toISOString();
+      const ingestedDocs: Array<{ id: string; sourceType: string; poNumber: string | null; customerId: string | null }> = [];
+      let finalCaseId: string | null = null;
+      let resolvedPoNumber: string | null = null;
+      let resolvedCustomerId: string | null = null;
+
+      // 1. Ingest Email Body
+      const emailDocId = crypto.randomUUID();
+      let emailStageA: StageADocument | null = null;
+
+      if (parsed.bodyText) {
+        const emailExtraction = await extractEmailToStageA({
+          rawText: parsed.bodyText,
+          documentId: emailDocId,
+          receivedAt,
+          senderEmail: parsed.senderEmail,
+        });
+
+        emailStageA = emailExtraction.stageA;
+        resolvedPoNumber = emailStageA.order.poNumber;
+        resolvedCustomerId = emailStageA.order.customerId;
+
+        // Sender resolution
+        const senderRes = resolveSenderIdentity({
+          db,
+          senderEmail: parsed.senderEmail || emailStageA.source.senderEmail,
+          spfStatus: parsed.spfStatus,
+          dkimStatus: parsed.dkimStatus,
+          payloadCustomerId: resolvedCustomerId,
+        });
+
+        const effectiveCust = senderRes.mappedCustomerId || resolvedCustomerId;
+
+        // Persist Email document
+        documentRepo.insert(db, {
+          id: emailDocId,
+          sourceType: 'EMAIL',
+          status: 'VALID',
+          storagePath: null,
+          senderEmail: parsed.senderEmail,
+          spfStatus: parsed.spfStatus || null,
+          dkimStatus: parsed.dkimStatus || null,
+          receivedAt,
+        });
+
+        // Route document to create or link case
+        const route = routeDocument(db, {
+          documentId: emailDocId,
+          customerId: effectiveCust,
+          poNumber: resolvedPoNumber,
+          identityConflict: senderRes.hasIdentityConflict
+            ? { hasConflict: true, reason: senderRes.identityConflictReason || 'Identity conflict' }
+            : null,
+        });
+
+        finalCaseId = route.caseId;
+
+        // Persist extracted text and fields
+        extractedTextRepo.insert(db, {
+          id: crypto.randomUUID(),
+          documentId: emailDocId,
+          rawText: parsed.bodyText,
+          cleanedText: emailExtraction.quoteStripResult.cleanedText,
+          pageBreakOffsets: [0],
+          quoteStripMetadata: emailExtraction.quoteStripResult.metadata,
+        });
+
+        extractedFieldsRepo.insert(db, {
+          id: crypto.randomUUID(),
+          documentId: emailDocId,
+          stage: 'STAGE_A',
+          payload: emailStageA,
+        });
+
+        for (const item of emailStageA.lineItems) {
+          lineItemRepo.insert(db, {
+            id: crypto.randomUUID(),
+            sourceDocumentId: emailDocId,
+            lineReference: item.lineReference,
+            productCode: item.productCode,
+            normalizedProductCode: item.productCode ? item.productCode.trim().toUpperCase() : null,
+            description: item.description,
+            quantity: item.quantity,
+            unitOfMeasure: item.unitOfMeasure,
+            unitPrice: item.unitPrice,
+            discountAmount: item.discountAmount,
+            taxableAmount: item.taxableAmount,
+            lineTotal: item.lineTotal,
+            taxesJson: item.taxes ? JSON.stringify(item.taxes) : null,
+          });
+        }
+
+        ingestedDocs.push({
+          id: emailDocId,
+          sourceType: 'EMAIL',
+          poNumber: resolvedPoNumber,
+          customerId: effectiveCust,
+        });
+      }
+
+      // 2. Ingest Attached PDFs
+      const uploadsDir = path.resolve(process.cwd(), 'storage', 'uploads');
+      fs.mkdirSync(uploadsDir, { recursive: true });
+
+      for (const pdf of parsed.pdfAttachments) {
+        const pdfDocId = crypto.randomUUID();
+        const safeName = `${pdfDocId}-${path.basename(pdf.filename)}`;
+        const savedPath = path.join(uploadsDir, safeName);
+        fs.writeFileSync(savedPath, pdf.buffer);
+
+        const pdfExtraction = await extractPdfBufferToStageA({
+          buffer: pdf.buffer,
+          documentId: pdfDocId,
+          receivedAt,
+          storagePath: savedPath,
+        });
+
+        const pdfStageA = pdfExtraction.stageA;
+        if (!resolvedPoNumber && pdfStageA.order.poNumber) {
+          resolvedPoNumber = pdfStageA.order.poNumber;
+        }
+        if (!resolvedCustomerId && pdfStageA.order.customerId) {
+          resolvedCustomerId = pdfStageA.order.customerId;
+        }
+
+        // If no case yet, route PDF
+        if (!finalCaseId) {
+          const route = routeDocument(db, {
+            documentId: pdfDocId,
+            customerId: resolvedCustomerId,
+            poNumber: resolvedPoNumber,
+          });
+          finalCaseId = route.caseId;
+        }
+
+        documentRepo.insert(db, {
+          id: pdfDocId,
+          sourceType: 'PDF',
+          status: 'VALID',
+          storagePath: savedPath,
+          receivedAt,
+        });
+
+        if (finalCaseId) {
+          linkDocumentToCase(db, pdfDocId, finalCaseId);
+          assignDocumentVersion(db, {
+            caseId: finalCaseId,
+            sourceType: 'PDF',
+            documentId: pdfDocId,
+            receivedAt,
+          });
+        }
+
+        extractedTextRepo.insert(db, {
+          id: crypto.randomUUID(),
+          documentId: pdfDocId,
+          rawText: pdfExtraction.rawText,
+          cleanedText: pdfExtraction.rawText,
+          pageBreakOffsets: pdfExtraction.pageBreakOffsets,
+        });
+
+        extractedFieldsRepo.insert(db, {
+          id: crypto.randomUUID(),
+          documentId: pdfDocId,
+          stage: 'STAGE_A',
+          payload: pdfStageA,
+        });
+
+        for (const item of pdfStageA.lineItems) {
+          lineItemRepo.insert(db, {
+            id: crypto.randomUUID(),
+            sourceDocumentId: pdfDocId,
+            lineReference: item.lineReference,
+            productCode: item.productCode,
+            normalizedProductCode: item.productCode ? item.productCode.trim().toUpperCase() : null,
+            description: item.description,
+            quantity: item.quantity,
+            unitOfMeasure: item.unitOfMeasure,
+            unitPrice: item.unitPrice,
+            discountAmount: item.discountAmount,
+            taxableAmount: item.taxableAmount,
+            lineTotal: item.lineTotal,
+            taxesJson: item.taxes ? JSON.stringify(item.taxes) : null,
+          });
+        }
+
+        ingestedDocs.push({
+          id: pdfDocId,
+          sourceType: 'PDF',
+          poNumber: pdfStageA.order.poNumber,
+          customerId: pdfStageA.order.customerId,
+        });
+      }
+
+      // 3. Real-Time Reconciliation Trigger
+      let reconSummary: any = null;
+      if (finalCaseId) {
+        const caseRow = caseRepo.findById(db, finalCaseId);
+        const docRows = documentRepo.findCurrentForCase(db, finalCaseId).filter((d: any) => d.status === 'VALID');
+        const stageADocs: StageADocument[] = [];
+
+        for (const d of docRows) {
+          const fieldRow = extractedFieldsRepo.findByDocId(db, d.id, 'STAGE_A');
+          if (fieldRow) {
+            stageADocs.push(JSON.parse(fieldRow.payload_json));
+          }
+        }
+
+        const expectedSources = JSON.parse(caseRow.expected_sources || '["EMAIL","PDF","JSON"]');
+        const reconResult = reconcileCase({
+          db,
+          caseId: finalCaseId,
+          customerId: caseRow.customer_id,
+          poNumber: caseRow.po_number,
+          documents: stageADocs,
+          expectedSources,
+        });
+
+        const runId = crypto.randomUUID();
+        runRepo.insert(db, {
+          id: runId,
+          caseId: finalCaseId,
+          status: 'COMPLETED',
+          documentVersionIds: stageADocs.map((d) => d.source.documentId),
+          initiatedBy: 'INBOUND_WEBHOOK',
+          startedAt: receivedAt,
+          completedAt: new Date().toISOString(),
+        });
+
+        resultRepo.insert(db, {
+          id: crypto.randomUUID(),
+          runId,
+          caseId: finalCaseId,
+          status: reconResult.status,
+          issues: reconResult.issues,
+          summary: reconResult.summary,
+        });
+
+        caseRepo.updateStatus(db, finalCaseId, reconResult.status);
+
+        reconSummary = {
+          runId,
+          status: reconResult.status,
+          issuesCount: reconResult.issues.length,
+          issues: reconResult.issues,
+        };
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Inbound email and ${parsed.pdfAttachments.length} PDF attachment(s) ingested in real time`,
+        caseId: finalCaseId,
+        poNumber: resolvedPoNumber,
+        customerId: resolvedCustomerId,
+        documentsIngested: ingestedDocs,
+        reconciliation: reconSummary,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Inbound webhook processing failed' });
     }
   });
 
