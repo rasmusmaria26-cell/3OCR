@@ -88,3 +88,4 @@ export function createAuthMiddleware(options?: AuthOptions) {
     isAuthEnabled,
   };
 }
+

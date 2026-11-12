@@ -181,3 +181,4 @@ runScannedPdfCheck().catch((err) => {
   console.error('\n❌ Error during scanned PDF check:', err);
   process.exit(1);
 });
+

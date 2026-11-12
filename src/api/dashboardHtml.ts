@@ -1752,7 +1752,11 @@ export function getDashboardHtml(): string {
     // Direct Single-Document Upload to Current Case
     async function handleDirectDocumentUpload(event, srcType) {
       const file = event.target.files?.[0];
-      if (!file || !currentCase) return;
+      if (!file) return;
+      if (!currentCase) {
+        alert('Please select or open a case before attaching documents directly, or use the "Upload Documents" tab.');
+        return;
+      }
 
       const metaSpan = document.getElementById('sourceViewerMeta');
       if (metaSpan) metaSpan.innerText = 'Uploading ' + file.name + '...';
@@ -1769,9 +1773,12 @@ export function getDashboardHtml(): string {
           method: 'POST',
           body: formData,
         });
+        const data = await res.json();
         if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || 'Upload failed');
+          throw new Error(data.error || 'Upload failed');
+        }
+        if (data.status === 'DUPLICATE_FILE') {
+          alert('Notice: This exact file was already attached previously (duplicate SHA-256 hash).');
         }
         await selectCase(currentCase.id);
         await runCaseReconciliation();
@@ -1784,7 +1791,7 @@ export function getDashboardHtml(): string {
     async function submitUploadedDocuments() {
       const btn = document.getElementById('startUploadBtn');
       btn.disabled = true;
-      btn.innerText = 'Uploading & Ingesting...';
+      btn.innerText = 'Uploading & Ingesting (OCR may take a few seconds)...';
 
       const po = document.getElementById('uploadPoNumber').value.trim();
       const cust = document.getElementById('uploadCustomerId').value.trim();
@@ -1804,7 +1811,13 @@ export function getDashboardHtml(): string {
               fetch('/api/documents', {
                 method: 'POST',
                 body: formData
-              }).then(r => r.json())
+              }).then(async r => {
+                const json = await r.json();
+                if (!r.ok) {
+                  throw new Error(json.error || 'Upload failed');
+                }
+                return json;
+              })
             );
           }
         }
@@ -1813,11 +1826,36 @@ export function getDashboardHtml(): string {
         resetUploadSlots();
         await loadAllData();
 
-        // Switch to the first newly linked or created case
+        // Check if any results were flagged as duplicates or sent to unlinked
+        const duplicateResults = results.filter(r => r.status === 'DUPLICATE_FILE');
+        const unlinkedResults = results.filter(r => r.routedToQueue === 'UNLINKED');
+
+        if (unlinkedResults.length > 0) {
+          alert('Document ingested! It was placed in the "Unlinked Docs" queue because customer ID could not be matched automatically. You can assign it to a PO now.');
+          switchMainView('unlinked');
+          return;
+        }
+
+        if (duplicateResults.length > 0 && results.every(r => r.status === 'DUPLICATE_FILE')) {
+          alert('Notice: This file was already ingested previously (duplicate SHA-256 hash). Navigating to the existing case.');
+        }
+
+        // Switch to the first newly linked, created, or resolved case
         const targetCaseId = results[0]?.caseId || results[0]?.stageA?.order?.poNumber;
         if (targetCaseId) {
           const matchCase = allCases.find(c => c.id === targetCaseId || c.po_number === targetCaseId);
-          if (matchCase) selectCase(matchCase.id);
+          if (matchCase) {
+            await selectCase(matchCase.id);
+            await runCaseReconciliation();
+          } else {
+            switchMainView('cases');
+          }
+        } else {
+          switchMainView('cases');
+          if (allCases.length > 0) {
+            await selectCase(allCases[0].id);
+            await runCaseReconciliation();
+          }
         }
       } catch (err) {
         alert('Failed uploading files: ' + err.message);

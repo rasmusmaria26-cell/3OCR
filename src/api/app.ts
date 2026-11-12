@@ -155,8 +155,17 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue,
       });
 
       if (dup.isDuplicate) {
+        let origCaseId: string | null = null;
+        if (dup.duplicateOfId) {
+          const origDoc = documentRepo.findById(db, dup.duplicateOfId);
+          if (origDoc && origDoc.case_id) {
+            origCaseId = origDoc.case_id;
+          }
+        }
+
         documentRepo.insert(db, {
           id: documentId,
+          caseId: origCaseId,
           sourceType,
           status: 'DUPLICATE_FILE',
           storagePath: storagePath || null,
@@ -174,6 +183,7 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue,
           documentId,
           status: 'DUPLICATE_FILE',
           duplicateOfId: dup.duplicateOfId,
+          caseId: origCaseId,
           message: 'Duplicate document detected; arrival event recorded without re-extraction',
         });
         return;
