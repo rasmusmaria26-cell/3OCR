@@ -7,7 +7,9 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "clean:cases": "tsx scripts/clear_cases.ts",
+    "test:ocr-check": "tsx scripts/check_scanned_pdf.ts"
   },
   "dependencies": {
     "better-sqlite3": "11.8.1",
