@@ -8,7 +8,9 @@ export function createDatabase(dbPath: string = ':memory:'): DatabaseType {
   db.pragma('journal_mode = WAL');
 
   // Load and execute schema
-  const schemaPath = path.resolve(__dirname, 'schema.sql');
+  const primarySchemaPath = path.resolve(__dirname, 'schema.sql');
+  const fallbackSchemaPath = path.resolve(process.cwd(), 'src', 'db', 'schema.sql');
+  const schemaPath = fs.existsSync(primarySchemaPath) ? primarySchemaPath : fallbackSchemaPath;
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
   db.exec(schemaSql);
 

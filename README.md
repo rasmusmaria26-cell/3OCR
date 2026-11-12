@@ -55,3 +55,16 @@ Executes all 26 test suites (170+ unit tests) via Vitest.
 node scripts/generate_and_test_samples.mjs
 ```
 Generates 10 test scenarios across PDF, Email, and JSON, reconciles them through the API, and outputs results to `test_results.csv`.
+
+## Deploy to Render
+
+This repository includes a `render.yaml` blueprint.
+
+1. Go to [dashboard.render.com](https://dashboard.render.com) and click **New > Web Service** (or **New > Blueprint**).
+2. Connect your repository: `https://github.com/rasmusmaria26-cell/3OCR`.
+3. Render will automatically detect the settings:
+   - **Runtime**: Node
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+4. Click **Deploy Web Service**.
+
