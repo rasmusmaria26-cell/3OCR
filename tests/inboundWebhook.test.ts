@@ -130,4 +130,33 @@ describe('Real-Time Inbound Email Webhook (Email + Attached PDF)', () => {
     expect(docs.map((d) => d.source_type)).toContain('EMAIL');
     expect(docs.map((d) => d.source_type)).toContain('PDF');
   });
+
+  it('handles Postmark JSON format with base64 PDF attachment natively', async () => {
+    const samplePdfPath = path.resolve(process.cwd(), 'storage', 'samples', 'order.pdf');
+    const pdfBase64 = fs.readFileSync(samplePdfPath).toString('base64');
+
+    const res = await fetch(`${baseUrl}/api/webhooks/inbound-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        From: 'buyer@acme.com',
+        Subject: 'Order PO-POSTMARK Confirmation',
+        TextBody: 'PO Number: PO-POSTMARK\nCustomer ID: CUST-001\nItem: SKU-001\nQty: 10\nPrice: $50.00\nTotal: $500.00\nGrand Total: $500.00',
+        Attachments: [
+          {
+            Name: 'PO-POSTMARK.pdf',
+            ContentType: 'application/pdf',
+            Content: pdfBase64,
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as any;
+    expect(data.success).toBe(true);
+    expect(data.documentsIngested.length).toBe(2);
+    expect(data.documentsIngested.map((d: any) => d.sourceType)).toContain('EMAIL');
+    expect(data.documentsIngested.map((d: any) => d.sourceType)).toContain('PDF');
+  });
 });

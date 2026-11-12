@@ -34,17 +34,33 @@ export function parseInboundWebhook(params: {
   const subject: string | null = body.subject || body.Subject || null;
 
   // 3. Extract email body text
-  let bodyText = body.text || body.body || body['stripped-text'] || body.cleanedText || '';
-  if (!bodyText && body.html) {
-    // Strip simple HTML tags if only HTML is provided
-    bodyText = body.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  let bodyText = body.text || body.TextBody || body.body || body['stripped-text'] || body.cleanedText || '';
+  if (!bodyText && (body.html || body.HtmlBody)) {
+    const rawHtml = body.html || body.HtmlBody;
+    bodyText = rawHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   }
   if (!bodyText && body.rawText) {
     bodyText = body.rawText;
   }
 
-  // 4. Extract attached PDFs from multipart files
+  // 4. Extract attached PDFs from multipart files or JSON body (Postmark format)
   const pdfAttachments: Array<{ filename: string; buffer: Buffer }> = [];
+
+  // Check JSON Attachments array (Postmark / Mailgun JSON)
+  if (Array.isArray(body.Attachments)) {
+    for (const att of body.Attachments) {
+      const isPdf =
+        att.ContentType === 'application/pdf' ||
+        att.Name?.toLowerCase().endsWith('.pdf');
+      if (isPdf && att.Content) {
+        pdfAttachments.push({
+          filename: att.Name || 'attachment.pdf',
+          buffer: Buffer.from(att.Content, 'base64'),
+        });
+      }
+    }
+  }
+
   for (const f of files) {
     const isPdf =
       f.mimetype === 'application/pdf' ||
@@ -104,3 +120,4 @@ export function extractPdfFromRawEml(emlContent: string): { filename: string; bu
   }
   return null;
 }
+
