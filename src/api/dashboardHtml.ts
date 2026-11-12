@@ -1347,11 +1347,23 @@ export function getDashboardHtml(): string {
         return;
       }
 
-      metaSpan.innerText = (doc.storage_path ? doc.storage_path.split('\\\\').pop() : 'Direct Ingestion') + ' • ' + (doc.stageA?.lineItems?.length || 0) + ' lines';
+      const lineCount = doc.stageA?.lineItems?.length ?? doc.lineItems?.length ?? 0;
+      metaSpan.innerText = (doc.storage_path ? doc.storage_path.split('\\\\').pop() : 'Direct Ingestion') + ' • ' + lineCount + ' lines';
 
       // If document is JSON
       if (tabName === 'JSON') {
-        const jsonText = JSON.stringify(doc.stageA, null, 2);
+        let jsonText = '';
+        if (doc.stageA) {
+          jsonText = JSON.stringify(doc.stageA, null, 2);
+        } else if (doc.rawText) {
+          try {
+            jsonText = JSON.stringify(JSON.parse(doc.rawText), null, 2);
+          } catch {
+            jsonText = doc.rawText;
+          }
+        } else {
+          jsonText = 'No JSON content';
+        }
         container.innerHTML = \`
           <pre class="mono" style="font-size: 11px; white-space: pre-wrap; word-break: break-all; color: var(--text);">\${escapeHtml(jsonText)}</pre>
         \`;

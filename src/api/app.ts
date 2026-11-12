@@ -775,8 +775,89 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
     res.json({ cases: enriched });
   });
 
+  // Helper to ensure Stage A extraction and line items exist for a document (auto-healing legacy or unextracted docs)
+  async function getOrExtractStageA(doc: any): Promise<StageADocument | null> {
+    const fieldRow = extractedFieldsRepo.findByDocId(db, doc.id, 'STAGE_A');
+    if (fieldRow) {
+      try {
+        return JSON.parse(fieldRow.payload_json);
+      } catch {
+        return null;
+      }
+    }
+
+    const textRow = extractedTextRepo.findByDocId(db, doc.id);
+    if (!textRow || !textRow.raw_text) {
+      return null;
+    }
+
+    try {
+      let stageA: StageADocument | null = null;
+      if (doc.source_type === 'JSON') {
+        const payload = JSON.parse(textRow.raw_text);
+        stageA = extractJsonToStageA({
+          payload,
+          documentId: doc.id,
+          receivedAt: doc.received_at,
+        });
+      } else if (doc.source_type === 'EMAIL') {
+        const res = await extractEmailToStageA({
+          rawText: textRow.raw_text,
+          documentId: doc.id,
+          receivedAt: doc.received_at,
+          senderEmail: doc.sender_email,
+        });
+        stageA = res.stageA;
+      } else if (doc.source_type === 'PDF') {
+        const offsets = textRow.page_break_offsets ? JSON.parse(textRow.page_break_offsets) : [0];
+        const res = await extractPdfTextToStageA({
+          rawText: textRow.raw_text,
+          documentId: doc.id,
+          receivedAt: doc.received_at,
+          pageBreakOffsets: offsets,
+          storagePath: doc.storage_path || undefined,
+        });
+        stageA = res.stageA;
+      }
+
+      if (stageA) {
+        extractedFieldsRepo.insert(db, {
+          id: crypto.randomUUID(),
+          documentId: doc.id,
+          stage: 'STAGE_A',
+          payload: stageA,
+        });
+
+        const existingLines = lineItemRepo.findByDocId(db, doc.id);
+        if (existingLines.length === 0 && stageA.lineItems) {
+          for (const item of stageA.lineItems) {
+            lineItemRepo.insert(db, {
+              id: crypto.randomUUID(),
+              sourceDocumentId: doc.id,
+              lineReference: item.lineReference,
+              productCode: item.productCode,
+              normalizedProductCode: item.productCode ? item.productCode.trim().toUpperCase() : null,
+              description: item.description,
+              quantity: item.quantity,
+              unitOfMeasure: item.unitOfMeasure,
+              unitPrice: item.unitPrice,
+              discountAmount: item.discountAmount,
+              taxableAmount: item.taxableAmount,
+              lineTotal: item.lineTotal,
+              taxesJson: item.taxes ? JSON.stringify(item.taxes) : null,
+            });
+          }
+        }
+      }
+      return stageA;
+    } catch (err: any) {
+      console.warn(`[Auto-heal] Failed to extract stageA for doc ${doc.id}:`, err?.message || err);
+      return null;
+    }
+  }
+
   // Get Case Details (enriched with extracted stage A, line items, and issues)
-  app.get('/api/cases/:id', (req: Request, res: Response): void => {
+  app.get('/api/cases/:id', async (req: Request, res: Response): Promise<void> => {
     const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const caseRow = caseRepo.findById(db, caseId);
     if (!caseRow) {
@@ -785,23 +866,25 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
     }
 
     const docRows = documentRepo.findForCase(db, caseId);
-    const enrichedDocs = docRows.map((d) => {
-      const fieldRow = extractedFieldsRepo.findByDocId(db, d.id, 'STAGE_A');
-      const textRow = extractedTextRepo.findByDocId(db, d.id);
-      const issues = extractionIssueRepo.findByDocumentId(db, d.id);
-      const lineItems = lineItemRepo.findByDocId(db, d.id);
-      const headerAdjustments = headerAdjustmentRepo.findByDocumentId(db, d.id);
-      return {
-        ...d,
-        stageA: fieldRow ? JSON.parse(fieldRow.payload_json) : null,
-        rawText: textRow?.raw_text || null,
-        cleanedText: textRow?.cleaned_text || null,
-        pageBreakOffsets: textRow?.page_break_offsets ? JSON.parse(textRow.page_break_offsets) : [0],
-        extractionIssues: issues,
-        lineItems,
-        headerAdjustments,
-      };
-    });
+    const enrichedDocs = await Promise.all(
+      docRows.map(async (d) => {
+        const stageA = await getOrExtractStageA(d);
+        const textRow = extractedTextRepo.findByDocId(db, d.id);
+        const issues = extractionIssueRepo.findByDocumentId(db, d.id);
+        const lineItems = lineItemRepo.findByDocId(db, d.id);
+        const headerAdjustments = headerAdjustmentRepo.findByDocumentId(db, d.id);
+        return {
+          ...d,
+          stageA,
+          rawText: textRow?.raw_text || null,
+          cleanedText: textRow?.cleaned_text || null,
+          pageBreakOffsets: textRow?.page_break_offsets ? JSON.parse(textRow.page_break_offsets) : [0],
+          extractionIssues: issues,
+          lineItems,
+          headerAdjustments,
+        };
+      })
+    );
 
     const latestResult = resultRepo.findByCaseId(db, caseId);
     const activeDecisions = reviewRepo.findActiveForCase(db, caseId);
@@ -824,7 +907,7 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // Run Reconcile for Case
-  app.post('/api/cases/:id/reconcile', (req: Request, res: Response): void => {
+  app.post('/api/cases/:id/reconcile', async (req: Request, res: Response): Promise<void> => {
     const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const caseRow = caseRepo.findById(db, caseId);
     if (!caseRow) {
@@ -836,9 +919,9 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
     const stageADocs: StageADocument[] = [];
 
     for (const d of docRows) {
-      const fieldRow = extractedFieldsRepo.findByDocId(db, d.id, 'STAGE_A');
-      if (fieldRow) {
-        stageADocs.push(JSON.parse(fieldRow.payload_json));
+      const stageA = await getOrExtractStageA(d);
+      if (stageA) {
+        stageADocs.push(stageA);
       }
     }
 
