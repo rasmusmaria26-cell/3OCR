@@ -20,11 +20,13 @@ import { assignDocumentVersion } from '../core/linking/versionManager.js';
 import { evaluateCaseDeadlines } from '../core/scheduler/deadlineChecker.js';
 import { explainDiscrepancy } from '../core/ai/discrepancyExplainer.js';
 import { parseInboundWebhook } from '../extractors/inboundEmailParser.js';
+import { createAuthMiddleware, AuthOptions } from './auth/index.js';
 
-export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue): Express {
+export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue, authOptions?: AuthOptions): Express {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
 
+  const auth = createAuthMiddleware(authOptions);
   const ingestionQueue = customQueue || new IngestionQueue(db);
 
   const upload = multer({
@@ -42,7 +44,12 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // Ingest Document (supports JSON body and multipart file upload)
-  app.post('/api/documents', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  app.post(
+    '/api/documents',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'ADMIN'),
+    upload.single('file'),
+    async (req: Request, res: Response): Promise<void> => {
     try {
       let sourceType = req.body.sourceType;
       const explicitCaseId = req.body.caseId;
@@ -712,7 +719,11 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // Link an existing document to a case manually (Phase 1 Fix 4 & Fix 5)
-  app.post('/api/documents/:id/link', (req: Request, res: Response): void => {
+  app.post(
+    '/api/documents/:id/link',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
     try {
       const documentId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const { caseId } = req.body;
@@ -749,7 +760,11 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // List all cases
-  app.get('/api/cases', (req: Request, res: Response): void => {
+  app.get(
+    '/api/cases',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'AUDITOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
     const cases = caseRepo.findAll(db);
     const enriched = cases.map((c) => {
       const docs = documentRepo.findForCase(db, c.id);
@@ -857,7 +872,11 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   }
 
   // Get Case Details (enriched with extracted stage A, line items, and issues)
-  app.get('/api/cases/:id', async (req: Request, res: Response): Promise<void> => {
+  app.get(
+    '/api/cases/:id',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'AUDITOR', 'ADMIN'),
+    async (req: Request, res: Response): Promise<void> => {
     const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const caseRow = caseRepo.findById(db, caseId);
     if (!caseRow) {
@@ -907,7 +926,11 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // Run Reconcile for Case
-  app.post('/api/cases/:id/reconcile', async (req: Request, res: Response): Promise<void> => {
+  app.post(
+    '/api/cases/:id/reconcile',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'ADMIN'),
+    async (req: Request, res: Response): Promise<void> => {
     const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const caseRow = caseRepo.findById(db, caseId);
     if (!caseRow) {
@@ -990,7 +1013,11 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // AI Discrepancy Explainer endpoint
-  app.post('/api/cases/:id/ai-explain', async (req: Request, res: Response): Promise<void> => {
+  app.post(
+    '/api/cases/:id/ai-explain',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'AUDITOR', 'ADMIN'),
+    async (req: Request, res: Response): Promise<void> => {
     try {
       const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const caseRow = caseRepo.findById(db, caseId);
@@ -1047,25 +1074,29 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // Submit Review Decision
-  app.post('/api/cases/:id/review', (req: Request, res: Response): void => {
-    try {
-      const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const {
-        issueFingerprint,
-        field,
-        lineReference,
-        previousValue,
-        selectedValue,
-        reason,
-        reviewer,
-        documentVersionIds,
-        supersedesId,
-      } = req.body;
+  app.post(
+    '/api/cases/:id/review',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
+      try {
+        const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const {
+          issueFingerprint,
+          field,
+          lineReference,
+          previousValue,
+          selectedValue,
+          reason,
+          documentVersionIds,
+          supersedesId,
+        } = req.body;
+        const reviewer = req.body.reviewer || req.user?.name || 'Reconciliation Operator';
 
-      if (!issueFingerprint || !field || !selectedValue || !reason || !reviewer) {
-        res.status(400).json({ error: 'Missing required review fields' });
-        return;
-      }
+        if (!issueFingerprint || !field || !selectedValue || !reason || !reviewer) {
+          res.status(400).json({ error: 'Missing required review fields' });
+          return;
+        }
 
       const decisionId = crypto.randomUUID();
       const decisionResult = reviewRepo.insertDecision(db, {
@@ -1112,7 +1143,11 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // Get Chronological Audit History for Case and Linked Documents (Phase 3)
-  app.get('/api/cases/:id/audit', (req: Request, res: Response): void => {
+  app.get(
+    '/api/cases/:id/audit',
+    auth.authenticate,
+    auth.requireRole('AUDITOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
     const caseId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const caseRow = caseRepo.findById(db, caseId);
     if (!caseRow) {
@@ -1148,60 +1183,81 @@ export function createExpressApp(db: DatabaseType, customQueue?: IngestionQueue)
   });
 
   // Get Ingestion Job Status
-  app.get('/api/ingestions/:id', (req: Request, res: Response): void => {
-    const jobId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const job = ingestionQueue.getJob(jobId);
-    if (!job) {
-      res.status(404).json({ error: 'Ingestion job not found' });
-      return;
-    }
-    res.json(job);
-  });
-
-  // List Queued Items
-  app.get('/api/queues', (req: Request, res: Response): void => {
-    try {
-      const queueType = req.query.queueType as any;
-      const resolved = req.query.resolved !== undefined ? req.query.resolved === 'true' : undefined;
-      const queues = getQueuedItems(db, { queueType, resolved });
-      res.json({ queues });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to list queues' });
-    }
-  });
-
-  // Resolve Queue Item
-  app.post('/api/queues/:id/resolve', (req: Request, res: Response): void => {
-    try {
-      const queueId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-      const { action, targetCaseId, targetCustomerId, targetPoNumber, resolvedBy } = req.body;
-      if (!action || !['LINK_CASE', 'REASSIGN', 'DISMISS'].includes(action)) {
-        res.status(400).json({ error: 'action must be LINK_CASE, REASSIGN, or DISMISS' });
+  app.get(
+    '/api/ingestions/:id',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'AUDITOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
+      const jobId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const job = ingestionQueue.getJob(jobId);
+      if (!job) {
+        res.status(404).json({ error: 'Ingestion job not found' });
         return;
       }
-      const result = resolveQueueItem(db, {
-        queueId,
-        action,
-        targetCaseId,
-        targetCustomerId,
-        targetPoNumber,
-        resolvedBy,
-      });
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Failed to resolve queue item' });
+      res.json(job);
     }
-  });
+  );
+
+  // List Queued Items
+  app.get(
+    '/api/queues',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
+      try {
+        const queueType = req.query.queueType as any;
+        const resolved = req.query.resolved !== undefined ? req.query.resolved === 'true' : undefined;
+        const queues = getQueuedItems(db, { queueType, resolved });
+        res.json({ queues });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message || 'Failed to list queues' });
+      }
+    }
+  );
+
+  // Resolve Queue Item
+  app.post(
+    '/api/queues/:id/resolve',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
+      try {
+        const queueId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+        const { action, targetCaseId, targetCustomerId, targetPoNumber } = req.body;
+        const resolvedBy = req.body.resolvedBy || req.user?.name || 'Reconciliation Operator';
+        if (!action || !['LINK_CASE', 'REASSIGN', 'DISMISS'].includes(action)) {
+          res.status(400).json({ error: 'action must be LINK_CASE, REASSIGN, or DISMISS' });
+          return;
+        }
+        const result = resolveQueueItem(db, {
+          queueId,
+          action,
+          targetCaseId,
+          targetCustomerId,
+          targetPoNumber,
+          resolvedBy,
+        });
+        res.json(result);
+      } catch (err: any) {
+        res.status(500).json({ error: err.message || 'Failed to resolve queue item' });
+      }
+    }
+  );
 
   // Check Case Deadlines
-  app.post('/api/cases/check-deadlines', (req: Request, res: Response): void => {
-    try {
-      const summary = evaluateCaseDeadlines(db, req.body?.now);
-      res.json({ summary });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || 'Deadline check failed' });
+  app.post(
+    '/api/cases/check-deadlines',
+    auth.authenticate,
+    auth.requireRole('OPERATOR', 'ADMIN'),
+    (req: Request, res: Response): void => {
+      try {
+        const summary = evaluateCaseDeadlines(db, req.body?.now);
+        res.json({ summary });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message || 'Deadline check failed' });
+      }
     }
-  });
+  );
 
   return app;
 }

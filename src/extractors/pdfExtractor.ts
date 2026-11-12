@@ -1,6 +1,10 @@
-import { StageADocument, LineItem, Evidence } from '../core/schema/stageA.schema.js';
+import { StageADocument, LineItem, Evidence, BoundingBox } from '../core/schema/stageA.schema.js';
 import { parseDecimal } from '../core/decimal/decimalParser.js';
 import { verifyEvidence, VerificationIssue, getPageForOffset } from '../core/verification/evidenceVerifier.js';
+import { OCRResult } from '../ocr/ocrResult.schema.js';
+import { OCRProvider } from '../ocr/ocrProvider.js';
+import { OCRService, getDefaultOCRService, computeEvidenceMetadata } from '../ocr/ocrService.js';
+import { inspectPdfPages, PDFInspectionResult } from '../ocr/pdfPreprocessor.js';
 
 // @ts-ignore
 import pdfParseFn from 'pdf-parse/lib/pdf-parse.js';
@@ -13,6 +17,7 @@ export interface PdfExtractionParams {
   receivedAt: string;
   pageBreakOffsets?: number[];
   storagePath?: string;
+  ocrResult?: OCRResult;
 }
 
 export interface PdfBufferExtractionParams {
@@ -20,6 +25,8 @@ export interface PdfBufferExtractionParams {
   documentId: string;
   receivedAt: string;
   storagePath?: string;
+  ocrProvider?: OCRProvider;
+  ocrService?: OCRService;
 }
 
 export interface PdfExtractionResult {
@@ -30,8 +37,55 @@ export interface PdfExtractionResult {
 }
 
 export async function extractPdfBufferToStageA(params: PdfBufferExtractionParams): Promise<PdfExtractionResult> {
-  const { buffer, documentId, receivedAt, storagePath } = params;
+  const { buffer, documentId, receivedAt, storagePath, ocrProvider, ocrService } = params;
 
+  if (!buffer || buffer.length === 0) {
+    throw new Error('PDF_PARSE_STREAM_CORRUPT: Corrupted or unreadable PDF stream');
+  }
+
+  let inspection: PDFInspectionResult;
+  try {
+    inspection = await inspectPdfPages(buffer);
+  } catch (err: any) {
+    throw new Error('PDF_PARSE_STREAM_CORRUPT: Corrupted or unreadable PDF stream');
+  }
+
+  // If PDF has scanned pages (scanned or mixed), process with OCR pipeline
+  if (inspection.hasScannedPages) {
+    const service =
+      ocrService ||
+      (ocrProvider ? new OCRService({ provider: ocrProvider }) : getDefaultOCRService());
+
+    const { ocrResult, quality } = await service.processPdf(buffer);
+
+    const result = extractPdfTextToStageA({
+      rawText: ocrResult.fullText,
+      documentId,
+      receivedAt,
+      pageBreakOffsets: ocrResult.pageBreakOffsets,
+      storagePath,
+      ocrResult,
+    });
+
+    for (const qi of quality.issues) {
+      const isBlocking =
+        qi.code === 'BLANK_PAGE' ||
+        qi.code === 'UNREADABLE_SCAN' ||
+        qi.code === 'LOW_OCR_CONFIDENCE';
+      result.issues.push({
+        code: 'LOW_OCR_CONFIDENCE',
+        fieldPath: `page[${qi.pageNumber}]`,
+        candidateValue: undefined,
+        rawValue: undefined,
+        snippet: qi.message,
+        isBlocking,
+      });
+    }
+
+    return result;
+  }
+
+  // Purely digital PDF: fast-path via existing pdf-parse
   const pageBreakOffsets: number[] = [0];
   let curLen = 0;
   let parsedText = '';
@@ -101,7 +155,7 @@ export async function extractPdfBufferToStageA(params: PdfBufferExtractionParams
 }
 
 export function extractPdfTextToStageA(params: PdfExtractionParams): PdfExtractionResult {
-  const { rawText, documentId, receivedAt, pageBreakOffsets = [0], storagePath } = params;
+  const { rawText, documentId, receivedAt, pageBreakOffsets = [0], storagePath, ocrResult } = params;
 
   const issues: VerificationIssue[] = [];
   const evidenceList: Evidence[] = [];
@@ -141,15 +195,45 @@ export function extractPdfTextToStageA(params: PdfExtractionParams): PdfExtracti
 
       opts.onSuccess(opts.candidateValue, verifiedCurrency);
 
+      const pageNum = verification.page || 1;
+      const ocrPage = ocrResult?.pages?.find((p) => p.pageNumber === pageNum);
+      const isScannedPage = ocrPage ? ocrPage.isScanned : false;
+      const extractionMethod = isScannedPage ? 'OCR' : 'PDF_PARSE';
+
+      let boundingBox: BoundingBox | null = null;
+      let confidence: number | null = null;
+
+      if (ocrPage && verification.charStart !== undefined && verification.charStart !== null && verification.charEnd !== undefined && verification.charEnd !== null) {
+        const pageOffset = pageBreakOffsets[pageNum - 1] || 0;
+        const pageCharStart = verification.charStart - pageOffset;
+        const pageCharEnd = verification.charEnd - pageOffset;
+        const meta = computeEvidenceMetadata(ocrPage, pageCharStart, pageCharEnd);
+        boundingBox = meta.boundingBox;
+        confidence = meta.confidence;
+      }
+
+      if (isScannedPage && confidence !== null && confidence < 60) {
+        issues.push({
+          code: 'LOW_OCR_CONFIDENCE',
+          fieldPath: opts.fieldPath,
+          candidateValue: opts.candidateValue ?? undefined,
+          rawValue: opts.rawValue ?? undefined,
+          snippet: opts.snippet ?? undefined,
+          isBlocking: opts.isBlocking,
+        });
+      }
+
       evidenceList.push({
         fieldPath: opts.fieldPath,
         rawValue: opts.rawValue,
         snippet: opts.snippet,
-        page: verification.page || 1,
+        page: pageNum,
         charStart: verification.charStart || null,
         charEnd: verification.charEnd || null,
         jsonPath: null,
-        extractionMethod: 'PDF_PARSE',
+        extractionMethod,
+        boundingBox,
+        confidence,
       });
     } else {
       opts.onFailure();
@@ -373,6 +457,22 @@ export function extractPdfTextToStageA(params: PdfExtractionParams): PdfExtracti
         }
       }
 
+      const ocrPage = ocrResult?.pages?.find((p) => p.pageNumber === page);
+      const isScannedPage = ocrPage ? ocrPage.isScanned : false;
+      const extractionMethod = isScannedPage ? 'OCR' : 'PDF_PARSE';
+
+      let boundingBox: BoundingBox | null = null;
+      let confidence: number | null = null;
+
+      if (ocrPage && charStart !== null && charEnd !== null) {
+        const pageOffset = pageBreakOffsets[page - 1] || 0;
+        const pageCharStart = charStart - pageOffset;
+        const pageCharEnd = charEnd - pageOffset;
+        const meta = computeEvidenceMetadata(ocrPage, pageCharStart, pageCharEnd);
+        boundingBox = meta.boundingBox;
+        confidence = meta.confidence;
+      }
+
       evidenceList.push({
         fieldPath: 'order.currency',
         rawValue: currEv.rawValue,
@@ -381,7 +481,9 @@ export function extractPdfTextToStageA(params: PdfExtractionParams): PdfExtracti
         charStart,
         charEnd,
         jsonPath: null,
-        extractionMethod: 'PDF_PARSE',
+        extractionMethod,
+        boundingBox,
+        confidence,
       });
     }
   }

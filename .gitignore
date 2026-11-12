@@ -20,3 +20,6 @@ storage/uploads/*
 .DS_Store
 Thumbs.db
 
+# OCR cache
+*.traineddata
+

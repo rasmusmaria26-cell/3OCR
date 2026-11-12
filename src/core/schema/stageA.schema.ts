@@ -36,6 +36,14 @@ export const HeaderAdjustmentSchema = z.object({
   taxes: z.array(TaxDetailSchema).default([]),
 });
 
+export const BoundingBoxSchema = z.object({
+  x0: z.number(),
+  y0: z.number(),
+  x1: z.number(),
+  y1: z.number(),
+});
+export type BoundingBox = z.infer<typeof BoundingBoxSchema>;
+
 export const EvidenceSchema = z.object({
   fieldPath: z.string(),
   rawValue: z.string(),
@@ -44,7 +52,9 @@ export const EvidenceSchema = z.object({
   charStart: z.number().int().nonnegative().nullable().default(null),
   charEnd: z.number().int().nonnegative().nullable().default(null),
   jsonPath: nullableTrimmedString.default(null),
-  extractionMethod: z.enum(['LLM', 'REGEX', 'PDF_PARSE', 'JSON_PARSE']),
+  extractionMethod: z.enum(['LLM', 'REGEX', 'PDF_PARSE', 'JSON_PARSE', 'OCR']),
+  boundingBox: BoundingBoxSchema.nullable().optional(),
+  confidence: z.number().min(0).max(100).nullable().optional(),
 });
 
 export const SourceMetadataSchema = z.object({

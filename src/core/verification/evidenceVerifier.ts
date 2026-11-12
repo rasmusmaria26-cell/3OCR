@@ -6,7 +6,7 @@ export interface TokenOccurrence {
 }
 
 export interface VerificationIssue {
-  code: 'SNIPPET_NOT_FOUND' | 'TOKEN_BOUNDARY_VIOLATION' | 'VALUE_MISMATCH' | 'PARSER_FAILURE' | 'CURRENCY_MISMATCH';
+  code: 'SNIPPET_NOT_FOUND' | 'TOKEN_BOUNDARY_VIOLATION' | 'VALUE_MISMATCH' | 'PARSER_FAILURE' | 'CURRENCY_MISMATCH' | 'LOW_OCR_CONFIDENCE';
   fieldPath: string;
   candidateValue?: string;
   rawValue?: string;
