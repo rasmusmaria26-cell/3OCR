@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { createDatabase } from './db/database.js';
 import { seedCustomerConfig } from './config/customerConfig.js';
 import { createExpressApp } from './api/app.js';

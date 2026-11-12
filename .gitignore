@@ -16,6 +16,7 @@ storage/uploads/*
 # Environment & OS
 .env
 .env.*
+!.env.example
 .DS_Store
 Thumbs.db
 
