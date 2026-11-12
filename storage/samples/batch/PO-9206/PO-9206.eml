@@ -1,0 +1,33 @@
+From: buyer@acme.com
+To: sales@vendor.com
+Date: Wed, 11 Nov 2026 10:00:00 +0000
+Subject: Order PO-9206 - Tech Services
+
+Hi Team,
+
+Please find our purchase order details below:
+PO Number: PO-9206
+Customer ID: CUST-101
+
+Item: LAP-001
+Description: Laptop Standard
+Quantity: 2
+Unit Price: $800.00
+Total: $1600.00
+
+Item: MOU-001
+Description: Optical Mouse
+Quantity: 5
+Unit Price: $20.00
+Total: $100.00
+
+Item: KEY-001
+Description: Wireless Keyboard
+Quantity: 2
+Unit Price: $75.00
+Total: $150.00
+
+Grand Total: $1850.00
+
+Thank you,
+Tech Services Purchasing

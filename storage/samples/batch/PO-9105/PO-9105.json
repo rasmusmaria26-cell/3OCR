@@ -1,0 +1,20 @@
+{
+  "poNumber": "PO-9105",
+  "customerId": "CUST-003",
+  "customerName": "Apex Logistics",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "PKG-09",
+      "description": "Secure Packing",
+      "quantity": 5,
+      "unitOfMeasure": "EA",
+      "unitPrice": 40,
+      "lineTotal": 200
+    }
+  ],
+  "amounts": {
+    "grandTotal": 200
+  }
+}

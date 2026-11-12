@@ -1,0 +1,27 @@
+From: procurement@cust001.com
+To: orders@vendor.com
+Date: Wed, 11 Nov 2026 10:00:00 +0000
+Subject: Purchase Order Confirmation PO-9101 - Acme Corp
+
+Dear Vendor Team,
+
+Please process the following purchase order according to our contract terms.
+
+PO Number: PO-9101
+Customer ID: CUST-001
+Customer Name: Acme Corp
+
+Item: SKU-001
+Description: Industrial Widget
+Quantity: 10
+Unit Price: $50.00
+Total: $500.00
+
+Grand Total: $500.00
+
+Thank you,
+Purchasing Department
+Acme Corp
+
+> On Tue, 10 Nov 2026 at 14:00, Vendor Sales wrote:
+> Standard quotation agreed upon. All items subject to standard SLA.

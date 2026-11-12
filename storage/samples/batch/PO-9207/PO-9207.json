@@ -1,0 +1,20 @@
+{
+  "poNumber": "PO-9207",
+  "customerId": "CUST-101",
+  "customerName": "Tech Services",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "LAP-001",
+      "description": "Laptop Standard",
+      "quantity": 2,
+      "unitOfMeasure": "EA",
+      "unitPrice": 800,
+      "lineTotal": 1600
+    }
+  ],
+  "amounts": {
+    "grandTotal": 1600
+  }
+}

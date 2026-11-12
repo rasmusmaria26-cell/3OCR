@@ -1,0 +1,20 @@
+{
+  "poNumber": "PO-9403",
+  "customerId": "CUST-001",
+  "customerName": "Acme Corp",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "SKU-001",
+      "description": "Industrial Widget",
+      "quantity": 10,
+      "unitOfMeasure": "EA",
+      "unitPrice": 65,
+      "lineTotal": 650
+    }
+  ],
+  "amounts": {
+    "grandTotal": 650
+  }
+}

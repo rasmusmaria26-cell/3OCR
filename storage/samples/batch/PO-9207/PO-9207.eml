@@ -1,0 +1,27 @@
+From: buyer@acme.com
+To: sales@vendor.com
+Date: Wed, 11 Nov 2026 10:00:00 +0000
+Subject: Order PO-9207 - Tech Services
+
+Hi Team,
+
+Please find our purchase order details below:
+PO Number: PO-9207
+Customer ID: CUST-101
+
+Item: LAP-001
+Description: Laptop Standard
+Quantity: 2
+Unit Price: $800.00
+Total: $1600.00
+
+Item: MOU-001
+Description: Optical Mouse
+Quantity: 5
+Unit Price: $20.00
+Total: $100.00
+
+Grand Total: $1700.00
+
+Thank you,
+Tech Services Purchasing

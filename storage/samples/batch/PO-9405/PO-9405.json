@@ -1,0 +1,20 @@
+{
+  "poNumber": "PO-9405",
+  "customerId": "CUST-001",
+  "customerName": "Acme Corp",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "SKU-999",
+      "description": "Custom Unrecognized Part",
+      "quantity": 5,
+      "unitOfMeasure": "EA",
+      "unitPrice": 40,
+      "lineTotal": 200
+    }
+  ],
+  "amounts": {
+    "grandTotal": 200
+  }
+}

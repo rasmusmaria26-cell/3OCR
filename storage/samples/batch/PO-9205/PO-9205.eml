@@ -1,0 +1,21 @@
+From: buyer@acme.com
+To: sales@vendor.com
+Date: Wed, 11 Nov 2026 10:00:00 +0000
+Subject: Order PO-9205 - Flex Furnishings
+
+Hi Team,
+
+Please find our purchase order details below:
+PO Number: PO-9205
+Customer ID: CUST-FLEX
+
+Item: CHR-100
+Description: Office Chair
+Quantity: 5
+Unit Price: $40.00
+Total: $200.00
+
+Grand Total: $200.00
+
+Thank you,
+Flex Furnishings Purchasing

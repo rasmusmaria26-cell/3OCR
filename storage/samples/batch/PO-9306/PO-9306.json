@@ -1,0 +1,29 @@
+{
+  "poNumber": "PO-9306",
+  "customerId": "CUST-001",
+  "customerName": "Acme Corp",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "SKU-001",
+      "description": "Industrial Widget",
+      "quantity": 2,
+      "unitOfMeasure": "EA",
+      "unitPrice": 50,
+      "lineTotal": 100
+    },
+    {
+      "lineReference": "2",
+      "productCode": "LAP-001",
+      "description": "Laptop Standard",
+      "quantity": 1,
+      "unitOfMeasure": "EA",
+      "unitPrice": 800,
+      "lineTotal": 800
+    }
+  ],
+  "amounts": {
+    "grandTotal": 900
+  }
+}

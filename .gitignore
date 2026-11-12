@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime uploads
+storage/uploads/*
+!storage/uploads/.gitkeep
+
+# Environment & OS
+.env
+.env.*
+.DS_Store
+Thumbs.db

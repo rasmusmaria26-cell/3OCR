@@ -1,0 +1,38 @@
+{
+  "poNumber": "PO-9206",
+  "customerId": "CUST-101",
+  "customerName": "Tech Services",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "LAP-001",
+      "description": "Laptop Standard",
+      "quantity": 2,
+      "unitOfMeasure": "EA",
+      "unitPrice": 800,
+      "lineTotal": 1600
+    },
+    {
+      "lineReference": "2",
+      "productCode": "MOU-001",
+      "description": "Optical Mouse",
+      "quantity": 5,
+      "unitOfMeasure": "EA",
+      "unitPrice": 20,
+      "lineTotal": 100
+    },
+    {
+      "lineReference": "3",
+      "productCode": "KEY-001",
+      "description": "Wireless Keyboard",
+      "quantity": 2,
+      "unitOfMeasure": "EA",
+      "unitPrice": 75,
+      "lineTotal": 150
+    }
+  ],
+  "amounts": {
+    "grandTotal": 1850
+  }
+}

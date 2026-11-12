@@ -1,0 +1,33 @@
+From: procurement@cust002.com
+To: orders@vendor.com
+Date: Wed, 11 Nov 2026 10:00:00 +0000
+Subject: Purchase Order Confirmation PO-9107 - Global Industries
+
+Dear Vendor Team,
+
+Please process the following purchase order according to our contract terms.
+
+PO Number: PO-9107
+Customer ID: CUST-002
+Customer Name: Global Industries
+
+Item: ITEM-A
+Description: Primary Part
+Quantity: 10
+Unit Price: $20.00
+Total: $200.00
+
+Item: ITEM-B
+Description: Secondary Part
+Quantity: 5
+Unit Price: $10.00
+Total: $50.00
+
+Grand Total: $250.00
+
+Thank you,
+Purchasing Department
+Global Industries
+
+> On Tue, 10 Nov 2026 at 14:00, Vendor Sales wrote:
+> Standard quotation agreed upon. All items subject to standard SLA.

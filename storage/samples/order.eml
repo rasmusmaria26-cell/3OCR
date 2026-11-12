@@ -1,0 +1,23 @@
+From: buyer@acme.com
+To: sales@vendor.com
+Date: Wed, 11 Nov 2026 09:00:00 +0000
+Subject: Order PO-9001 - Acme Corp
+
+Hi Team,
+
+Please find our purchase order details below:
+PO Number: PO-9001
+Customer ID: CUST-001
+Item: SKU-001
+Description: Industrial Widget
+Quantity: 10
+Unit Price: $50.00
+Total: $500.00
+
+Thank you,
+John Doe
+Acme Corp
+
+> On Tue, 10 Nov 2026 at 15:30, Vendor Sales <sales@vendor.com> wrote:
+> Thanks for your inquiry regarding Industrial Widget SKU-001.
+> The price is $50.00 each for orders of 10 or more.

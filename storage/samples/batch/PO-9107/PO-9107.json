@@ -1,0 +1,20 @@
+{
+  "poNumber": "PO-9107",
+  "customerId": "CUST-002",
+  "customerName": "Global Industries",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "ITEM-A",
+      "description": "Primary Part",
+      "quantity": 10,
+      "unitOfMeasure": "EA",
+      "unitPrice": 20,
+      "lineTotal": 200
+    }
+  ],
+  "amounts": {
+    "grandTotal": 200
+  }
+}

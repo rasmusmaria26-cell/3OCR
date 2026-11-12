@@ -1,0 +1,56 @@
+{
+  "poNumber": "PO-9110",
+  "customerId": "CUST-001",
+  "customerName": "Acme Corp",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "ITEM-01",
+      "description": "Component Alpha",
+      "quantity": 10,
+      "unitOfMeasure": "EA",
+      "unitPrice": 10,
+      "lineTotal": 100
+    },
+    {
+      "lineReference": "2",
+      "productCode": "ITEM-02",
+      "description": "Component Beta",
+      "quantity": 20,
+      "unitOfMeasure": "EA",
+      "unitPrice": 15,
+      "lineTotal": 300
+    },
+    {
+      "lineReference": "3",
+      "productCode": "ITEM-03",
+      "description": "Component Gamma",
+      "quantity": 5,
+      "unitOfMeasure": "EA",
+      "unitPrice": 50,
+      "lineTotal": 250
+    },
+    {
+      "lineReference": "4",
+      "productCode": "ITEM-04",
+      "description": "Component Delta",
+      "quantity": 8,
+      "unitOfMeasure": "EA",
+      "unitPrice": 25,
+      "lineTotal": 200
+    },
+    {
+      "lineReference": "5",
+      "productCode": "ITEM-05",
+      "description": "Component Epsilon",
+      "quantity": 2,
+      "unitOfMeasure": "EA",
+      "unitPrice": 100,
+      "lineTotal": 200
+    }
+  ],
+  "amounts": {
+    "grandTotal": 1050
+  }
+}

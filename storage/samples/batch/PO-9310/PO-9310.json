@@ -1,0 +1,38 @@
+{
+  "poNumber": "PO-9310",
+  "customerId": "CUST-001",
+  "customerName": "Acme Corp",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "SKU-001",
+      "description": "Industrial Widget",
+      "quantity": 10,
+      "unitOfMeasure": "EA",
+      "unitPrice": 50,
+      "lineTotal": 500
+    },
+    {
+      "lineReference": "2",
+      "productCode": "LAP-001",
+      "description": "Laptop Standard",
+      "quantity": 2,
+      "unitOfMeasure": "EA",
+      "unitPrice": 800,
+      "lineTotal": 1600
+    },
+    {
+      "lineReference": "3",
+      "productCode": "MOU-001",
+      "description": "Optical Mouse",
+      "quantity": 10,
+      "unitOfMeasure": "EA",
+      "unitPrice": 20,
+      "lineTotal": 200
+    }
+  ],
+  "amounts": {
+    "grandTotal": 2300
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "poNumber": "PO-9205",
+  "customerId": "CUST-FLEX",
+  "customerName": "Flex Furnishings",
+  "currency": "USD",
+  "lineItems": [
+    {
+      "lineReference": "1",
+      "productCode": "CHR-100",
+      "description": "Office Chair",
+      "quantity": 5,
+      "unitOfMeasure": "PCS",
+      "unitPrice": 40,
+      "lineTotal": 200
+    }
+  ],
+  "amounts": {
+    "grandTotal": 200
+  }
+}
