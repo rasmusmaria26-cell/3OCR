@@ -23,9 +23,9 @@ export class GeminiClient {
   private apiKey: string | null;
   private defaultModel: string;
 
-  constructor(apiKey?: string, defaultModel = 'gemini-2.5-flash') {
+  constructor(apiKey?: string, defaultModel?: string) {
     this.apiKey = apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null;
-    this.defaultModel = defaultModel;
+    this.defaultModel = defaultModel || process.env.GEMINI_MODEL || 'gemini-flash-latest';
   }
 
   public isAvailable(): boolean {
@@ -78,6 +78,7 @@ export class GeminiClient {
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify(requestBody),
     });
 
@@ -99,3 +100,4 @@ export class GeminiClient {
 }
 
 export const defaultGeminiClient = new GeminiClient();
+
